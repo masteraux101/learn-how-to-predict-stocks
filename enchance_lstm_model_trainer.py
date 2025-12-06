@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import RobustScaler
 from torch.utils.data import Dataset, DataLoader
+import joblib
 
 
 # ==================== 参数 ====================
@@ -12,7 +13,7 @@ HORIZON   = 5      # 未来多少根k线
 THRESHOLD = 0.002  # 多空阈值，BTC可调到0.003，A股0.006也行
 
 
-def make_features_and_labels(df):
+def make_features_and_labels(df, dump=False):
 
     datetime = pd.to_datetime(df.iloc[:, 0], utc=True).dt.tz_convert('America/New_York')
 
@@ -38,6 +39,9 @@ def make_features_and_labels(df):
 
     scaler = RobustScaler()
     X = torch.FloatTensor(scaler.fit_transform(features))
+
+    if dump:
+        joblib.dump(scaler, "enhance_ema20_scaler.pkl")
 
     return X, torch.LongTensor(labels.values), torch.BoolTensor(valid.values), scaler
 
@@ -88,7 +92,7 @@ if __name__ == "__main__":
     print(f"测试集: {len(test_df)}   ({(len(df)-val_end)/len(df)*100:.1f}%)")
 
     # 分别生成特征（每段数据独立标准化！更严谨）
-    X_train, y_train, v_train, scaler_train = make_features_and_labels(train_df)
+    X_train, y_train, v_train, scaler_train = make_features_and_labels(train_df, True)
     X_val,   y_val,   v_val,   _             = make_features_and_labels(val_df)
     X_test,  y_test,  v_test,  _             = make_features_and_labels(test_df)
 

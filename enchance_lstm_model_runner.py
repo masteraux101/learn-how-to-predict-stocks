@@ -5,6 +5,7 @@ import numpy as np
 from sklearn.preprocessing import RobustScaler
 from enchance_lstm_model_trainer import MicroLSTM
 import argparse
+import joblib
 
 # ------------------- 参数 -------------------
 SEQ_LEN   = 20
@@ -31,8 +32,8 @@ def make_ema20_features(df):
         'hours': hours
     }).fillna(0)
 
-    scaler = RobustScaler()
-    X_scaled = scaler.fit_transform(features)
+    scaler = joblib.load("enhance_ema20_scaler.pkl")
+    X_scaled = scaler.transform(features)
     return torch.FloatTensor(X_scaled), scaler
 
 # ------------------- 主程序 -------------------
