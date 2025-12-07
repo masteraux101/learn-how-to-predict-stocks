@@ -14,15 +14,18 @@ plt.rcParams['font.sans-serif'] = ['Arial Unicode MS']
 
 # Step 1: 获取 S&P 500 ETF 数据
 def fetch_data():
-    spy_data = yf.download('SPY', start='2020-01-01', end='2025-12-07')
-    spy_data.to_csv('spy_data.csv')  # 保存为 CSV
-    prices = spy_data['Close'].values.astype(np.float32)
-    print(f"数据长度: {len(prices)}")
+    # spy_data = yf.download('SPY', start='2020-01-01', end='2025-12-07')
+    # spy_data.to_csv('spy_data.csv')  # 保存为 CSV
+    # prices = spy_data['Close'].values.astype(np.float32)
+    # print(f"数据长度: {len(prices)}")
+
+    df = pd.read_csv("SPY_5min_last_60days.csv", parse_dates=True)
+    prices = df['Close'].values.astype(np.float32)
     return prices
 
 # Step 2: 数据预处理
-def preprocess_data(prices, window_size=128, horizon=22):
-    scaler = MinMaxScaler(feature_range=(0, 5))
+def preprocess_data(prices, window_size=128, horizon=24):
+    scaler = MinMaxScaler(feature_range=(0, 10000))
     prices_scaled = scaler.fit_transform(prices.reshape(-1, 1)).flatten()
 
     def create_dataset(data, window_size, horizon):
@@ -60,7 +63,7 @@ class SpectralConv1d(nn.Module):
         return x
 
 class FNO1d(nn.Module):
-    def __init__(self, modes=16, width=64, in_channels=1, out_channels=1):
+    def __init__(self, modes=8, width=64, in_channels=1, out_channels=1):
         super(FNO1d, self).__init__()
         self.modes = modes
         self.width = width
@@ -101,9 +104,9 @@ class FNO1d(nn.Module):
         x = x1 + x2
         x = F.gelu(x)
 
-        x1 = self.conv3(x)
-        x2 = self.w3(x)
-        x = x1 + x2
+        # x1 = self.conv3(x)
+        # x2 = self.w3(x)
+        # x = x1 + x2
 
         x = x.permute(0, 2, 1)
 
@@ -114,11 +117,11 @@ class FNO1d(nn.Module):
         return x[:, :horizon, :]
 
 # Step 4: 训练模型
-def train_model(model, X_train_t, y_train_t, device, epochs=40, batch_size=32):
+def train_model(model, X_train_t, y_train_t, device, epochs=40, batch_size=16):
     train_dataset = TensorDataset(X_train_t, y_train_t)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = optim.Adam(model.parameters(), lr=3e-3, weight_decay=1e-4)
     criterion = nn.MSELoss()
 
     for epoch in range(epochs):
@@ -163,7 +166,7 @@ def evaluate_model(model, X_test_t, y_test, scaler, window_size, horizon, device
 
 if __name__ == "__main__":
     prices = fetch_data()
-    X_train, X_test, y_train, y_test, scaler, window_size, horizon = preprocess_data(prices)
+    X_train, X_test, y_train, y_test, scaler, window_size, horizon = preprocess_data(prices, window_size=180, horizon=30)
 
     X_train_t = torch.from_numpy(X_train).float()
     y_train_t = torch.from_numpy(y_train).float()
@@ -171,8 +174,8 @@ if __name__ == "__main__":
     y_test_t = torch.from_numpy(y_test).float()
 
     device = torch.device('cpu')
-    model = FNO1d(modes=16, width=64)
+    model = FNO1d(modes=64, width=8)
     model.to(device)
 
-    train_model(model, X_train_t, y_train_t, device)
+    train_model(model, X_train_t, y_train_t, device, epochs=200, batch_size=16)
     evaluate_model(model, X_test_t, y_test, scaler, window_size, horizon, device)
