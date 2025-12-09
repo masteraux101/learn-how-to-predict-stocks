@@ -5,10 +5,12 @@ from sklearn.preprocessing import MinMaxScaler
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.fft import fft, ifft
+from torch.fft import fft, ifft, rfft, irfft
 from torch.utils.data import TensorDataset, DataLoader
 import torch.optim as optim
 import matplotlib.pyplot as plt
+import joblib
+import os
 
 plt.rcParams['font.sans-serif'] = ['Arial Unicode MS']
 
@@ -25,7 +27,7 @@ def fetch_data():
 
 # Step 2: 数据预处理
 def preprocess_data(prices, window_size=128, horizon=24):
-    scaler = MinMaxScaler(feature_range=(0, 10000))
+    scaler = MinMaxScaler(feature_range=(0, 1000))
     prices_scaled = scaler.fit_transform(prices.reshape(-1, 1)).flatten()
 
     def create_dataset(data, window_size, horizon):
@@ -56,10 +58,10 @@ class SpectralConv1d(nn.Module):
         self.weights1 = nn.Parameter(torch.zeros(in_channels, out_channels, modes1, dtype=torch.cfloat))
 
     def forward(self, x):
-        x_ft = fft(x, dim=-1)
+        x_ft = rfft(x, dim=-1)
         out_ft = torch.zeros_like(x_ft, dtype=torch.cfloat)
         out_ft[:, :, :self.modes1] = torch.einsum("bix,iox->box", x_ft[:, :, :self.modes1], self.weights1)
-        x = ifft(out_ft, n=x.size(-1)).real
+        x = irfft(out_ft, n=x.size(-1)).real
         return x
 
 class FNO1d(nn.Module):
@@ -104,9 +106,9 @@ class FNO1d(nn.Module):
         x = x1 + x2
         x = F.gelu(x)
 
-        # x1 = self.conv3(x)
-        # x2 = self.w3(x)
-        # x = x1 + x2
+        x1 = self.conv3(x)
+        x2 = self.w3(x)
+        x = x1 + x2
 
         x = x.permute(0, 2, 1)
 
@@ -138,6 +140,7 @@ def train_model(model, X_train_t, y_train_t, device, epochs=40, batch_size=16):
         print(f"Epoch {epoch+1}, Loss: {train_loss / len(train_loader):.4f}")
 
     torch.save(model.state_dict(), 'fno_spy_model.pth')
+    print("Model saved to fno_spy_model.pth")
 
 # Step 5: 预测和评估
 def evaluate_model(model, X_test_t, y_test, scaler, window_size, horizon, device):
@@ -173,9 +176,27 @@ if __name__ == "__main__":
     X_test_t = torch.from_numpy(X_test).float()
     y_test_t = torch.from_numpy(y_test).float()
 
+    m = 64
+    width = 32
+
     device = torch.device('cpu')
-    model = FNO1d(modes=64, width=8)
+    model = FNO1d(modes=m, width=width)
     model.to(device)
 
-    train_model(model, X_train_t, y_train_t, device, epochs=200, batch_size=16)
+    train_model(model, X_train_t, y_train_t, device, epochs=100, batch_size=32)
+    
+    # 保存scaler和模型参数
+    joblib.dump(scaler, 'fno_spy_scaler.joblib')
+    print("Scaler saved to fno_spy_scaler.joblib")
+    
+    # 保存模型配置和超参数
+    model_config = {
+        'modes': m,
+        'width': width,
+        'window_size': window_size,
+        'horizon': horizon
+    }
+    joblib.dump(model_config, 'fno_spy_model_config.joblib')
+    print("Model config saved to fno_spy_model_config.joblib")
+    
     evaluate_model(model, X_test_t, y_test, scaler, window_size, horizon, device)
