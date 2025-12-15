@@ -68,7 +68,7 @@ def predict_from_csv(model, scaler, config, device, csv_path='SPY_5min_last_3day
     return last_prices, prediction, window_size, horizon
 
 
-def predict_next_n_steps(model, scaler, config, device, csv_path='SPY_5min_last_3days.csv'):
+def predict_next_n_steps(model, scaler, config, device, csv_path='SPY_5min_last_10days.csv'):
     """预测未来N个时间步的股票价格"""
     last_prices, prediction, window_size, horizon = predict_from_csv(
         model, scaler, config, device, csv_path

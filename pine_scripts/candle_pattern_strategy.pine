@@ -1,0 +1,114 @@
+//@version=6
+strategy("Candle Pattern Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// ============================================
+// 参数配置
+// ============================================
+lookback_period = input.int(5, title="K线统计数量", minval=3, maxval=20)
+crossover_threshold = input.float(0.1, title="十字星阈值 (0-1)", minval=0.0, maxval=1.0, step=0.05)
+cross_count_limit = input.int(3, title="十字星数量限制", minval=1, maxval=10)
+close_at_high_threshold = input.float(0.9, title="收最高接近度 (0-1)", minval=0.5, maxval=1.0, step=0.05)
+close_at_low_threshold = input.float(0.9, title="收最低接近度 (0-1)", minval=0.5, maxval=1.0, step=0.05)
+
+// 声明历史缓冲区大小，确保足够的历史数据
+// 根据Pine Script执行模型，需要提前声明来避免运行时错误
+max_bars_back(close, 20)
+max_bars_back(open, 20)
+max_bars_back(high, 20)
+max_bars_back(low, 20)
+
+// ============================================
+// 主要逻辑：分析最近N根K线
+// 注意：直接在全局范围访问历史数据 [i]，避免函数范围内的历史引用问题
+// 按照Pine Script官方执行模型文档的要求
+// ============================================
+
+// 统计过去N根K线的形态
+close_at_high_count = 0
+close_at_low_count = 0
+doji_count = 0
+
+// 循环统计最近N根K线的形态
+for i = 0 to lookback_period - 1
+    // 判断第i根K线是否接近收在最高
+    high_range = high[i] - low[i]
+    close_to_high_ratio = high_range > 0 ? (high[i] - close[i]) / high_range : 0
+    if close_to_high_ratio <= (1 - close_at_high_threshold)
+        close_at_high_count += 1
+    
+    // 判断第i根K线是否接近收在最低
+    close_to_low_ratio = high_range > 0 ? (close[i] - low[i]) / high_range : 0
+    if close_to_low_ratio <= (1 - close_at_low_threshold)
+        close_at_low_count += 1
+    
+    // 判断第i根K线是否是十字星
+    body_size = math.abs(close[i] - open[i])
+    total_range = high[i] - low[i]
+    
+    if total_range > 0
+        body_ratio = body_size / total_range
+        if body_ratio <= crossover_threshold
+            doji_count += 1
+
+// 检查最后一根K线（当前K线）的形态
+high_range_last = high - low
+close_to_high_ratio_last = high_range_last > 0 ? (high - close) / high_range_last : 0
+last_close_at_high = close_to_high_ratio_last <= (1 - close_at_high_threshold)
+
+close_to_low_ratio_last = high_range_last > 0 ? (close - low) / high_range_last : 0
+last_close_at_low = close_to_low_ratio_last <= (1 - close_at_low_threshold)
+
+// ============================================
+// 生成交易信号
+// ============================================
+
+// 信号1: 如果有3个或以上十字星，不操作
+skip_signal = doji_count >= cross_count_limit
+
+// 信号2: 如果5根K线中有2个收在最高，且最后一根收在最高，做多
+long_signal = (not skip_signal) and (close_at_high_count >= 2) and last_close_at_high
+
+// 信号3: 如果5根K线中有2个收在最低，且最后一根收在最低，做空
+short_signal = (not skip_signal) and (close_at_low_count >= 2) and last_close_at_low
+
+// ============================================
+// 执行交易
+// ============================================
+
+if long_signal
+    strategy.entry("Long", strategy.long)
+    
+if short_signal
+    strategy.entry("Short", strategy.short)
+
+// 简单的止损和止盈
+atr_value = ta.atr(14)
+strategy.exit("Exit Long", from_entry="Long", loss=atr_value * 2, profit=atr_value * 3)
+strategy.exit("Exit Short", from_entry="Short", loss=atr_value * 2, profit=atr_value * 3)
+
+// ============================================
+// 可视化
+// ============================================
+
+// 显示信号
+plotshape(long_signal, title="买入信号", location=location.belowbar, color=color.green, style=shape.labelup, text="买")
+plotshape(short_signal, title="卖出信号", location=location.abovebar, color=color.red, style=shape.labeldown, text="卖")
+plotshape(skip_signal, title="跳过信号", location=location.top, color=color.gray, style=shape.xcross, text="跳过")
+
+// 显示统计信息
+var table display_table = na
+if na(display_table)
+    display_table := table.new(position.top_right, 3, 4, bgcolor=color.new(color.white, 80), border_color=color.gray)
+    
+table.cell(display_table, 0, 0, "形态统计", text_color=color.black, bgcolor=color.new(color.gray, 50))
+table.cell(display_table, 0, 1, "收最高: " + str.tostring(close_at_high_count), text_color=color.black)
+table.cell(display_table, 0, 2, "收最低: " + str.tostring(close_at_low_count), text_color=color.black)
+table.cell(display_table, 0, 3, "十字星: " + str.tostring(doji_count), text_color=color.black)
+
+// 信息标签
+if long_signal
+    label.new(bar_index, low, "✓ 做多条件满足", yloc=yloc.belowbar, color=color.green, textcolor=color.white, style=label.style_label_up)
+if short_signal
+    label.new(bar_index, high, "✓ 做空条件满足", yloc=yloc.abovebar, color=color.red, textcolor=color.white, style=label.style_label_down)
+if skip_signal and not long_signal and not short_signal
+    label.new(bar_index, high + atr_value, "⊠ 十字星过多，跳过", yloc=yloc.abovebar, color=color.gray, textcolor=color.white, size=size.small)
